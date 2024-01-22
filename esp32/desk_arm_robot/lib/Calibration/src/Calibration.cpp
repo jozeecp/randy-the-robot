@@ -15,7 +15,7 @@ Calibration::Calibration(AccelStepper *stepper, int calibration_button_pin, int 
 void Calibration::calibrate_motor(bool return_to_last_position) {
 
     // do nothing until the switch is pressed
-    Serial.println("Press button to start calibration");
+    Serial.println("Press action button to start calibration");
     int last_position = stepper->currentPosition();
     while (digitalRead(action_button_pin) == HIGH) {}
     Serial.println("Calibrating...");
@@ -32,7 +32,7 @@ void Calibration::calibrate_motor(bool return_to_last_position) {
         stepper->setSpeed(100);
         stepper->run();
     }
-    Serial.println("Switch pressed");
+    Serial.println("calibration button pressed");
     stepper->stop();
     stepper->setCurrentPosition(MAX_OFFSET);
 
