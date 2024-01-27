@@ -30,6 +30,7 @@ void Calibration::calibrate_motor(bool return_to_last_position) {
     while (digitalRead(calibration_button_pin) == HIGH) {
         stepper->move(1);
         stepper->setSpeed(100);
+        // Serial.println(stepper->currentPosition());
         stepper->run();
     }
     Serial.println("calibration button pressed");

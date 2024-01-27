@@ -19,6 +19,8 @@
 #define ACTION_BUTTON_PIN 19
 #define CALIBRATION_BUTTON_PIN 17
 
+#define BUILT_IN_LED 2
+
 #define EEPROM_SIZE 1
 
 // WiFi
@@ -50,6 +52,7 @@ int deg_to_steps(int degrees);
 int steps_to_deg(int steps);
 void mqtt_callback(char* topic, byte *payload, unsigned int length);
 void reconnect();
+void verify_buttons();
 
 void setup() {
     // init serial at 9600 baud
@@ -87,6 +90,7 @@ void setup() {
 
     // init pins
     pinMode(ACTION_BUTTON_PIN, INPUT_PULLUP);
+    pinMode(CALIBRATION_BUTTON_PIN, INPUT_PULLUP);
     pinMode(STEPPER_EN1, OUTPUT);
     pinMode(STEPPER_EN2, OUTPUT);
 
@@ -96,6 +100,10 @@ void setup() {
     Serial.print("Last position: "); Serial.println(last_position);
     stepper1.moveTo(last_position);
     Serial.println("Stepper moving to last position");
+
+    // verify buttons are working
+    verify_buttons();
+    Serial.println("Buttons are working");
 
     // print instructions
     Serial.println("Press both buttons to calibrate");
@@ -118,6 +126,21 @@ void loop() {
     }else{
         digitalWrite(STEPPER_EN1, HIGH);
         digitalWrite(STEPPER_EN2, HIGH);
+    }
+
+    // button press tests
+    if(digitalRead(ACTION_BUTTON_PIN) != HIGH){
+        Serial.println("Action button pressed");
+    }
+    if(digitalRead(CALIBRATION_BUTTON_PIN) != HIGH){
+        Serial.println("Calibration button pressed");
+        delay(1000);
+        // handle long press
+        if (digitalRead(CALIBRATION_BUTTON_PIN) != HIGH){
+            Serial.println("Long press detected");
+            ESP.restart();
+            return;
+        }
     }
 
     // press both buttons to calibrate
@@ -188,6 +211,8 @@ void mqtt_callback(char* topic, byte *payload, unsigned int length){
         Serial.print("Message: ");Serial.println(msg);
         if(msg == "calibrate"){
             calibration.calibrate_motor(true);
+        }else if(msg == "restart"){
+            ESP.restart();
         }
         return;
     }
@@ -224,5 +249,48 @@ void reconnect() {
             // Wait 5 seconds before retrying
             delay(5000);
         }
+    }
+}
+
+
+// Verify buttons are working
+// Enters infinite loop if buttons are not working
+// and flashes the built-in LED
+void verify_buttons(){
+    int action_button_state = digitalRead(ACTION_BUTTON_PIN);
+    int calibration_button_state = digitalRead(CALIBRATION_BUTTON_PIN);
+
+    // check if button is shorted
+    if(action_button_state != HIGH){
+        Serial.println("Action button shorted, unsafe to continue");
+        while(true){
+            digitalWrite(BUILT_IN_LED, HIGH);
+            delay(500);
+            digitalWrite(BUILT_IN_LED, LOW);
+            delay(500);
+        }
+    }
+
+    // now wait for button to be pressed
+    Serial.println("Press action button");
+    while (action_button_state == HIGH){
+        action_button_state = digitalRead(ACTION_BUTTON_PIN);
+    }
+
+    // check if button is shorted
+    if(calibration_button_state != HIGH){
+        Serial.println("Calibration button shorted, unsafe to continue");
+        while(true){
+            digitalWrite(BUILT_IN_LED, HIGH);
+            delay(500);
+            digitalWrite(BUILT_IN_LED, LOW);
+            delay(500);
+        }
+    }
+
+    // now wait for button to be pressed
+    Serial.println("Press calibration button");
+    while (calibration_button_state == HIGH){
+        calibration_button_state = digitalRead(CALIBRATION_BUTTON_PIN);
     }
 }
