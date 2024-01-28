@@ -1,4 +1,5 @@
 import json
+import os
 import redis
 from pydantic import BaseModel
 from typing import Any
@@ -8,11 +9,14 @@ logger = get_logger(__name__)
 
 class DBClient:
     def __init__(self) -> None:
-        pass
+        self.redis_host = os.getenv("REDIS_HOST", "localhost")
+        self.redis_port = os.getenv("REDIS_PORT", 6379)
+        logger.debug(f"redis_host: {self.redis_host}")
+        logger.debug(f"redis_port: {self.redis_port}")
 
     def get_client(self, db: int = 0):
-        return redis.Redis(host='localhost', port=6379, db=db)
-    
+        return redis.Redis(host=self.redis_host, port=self.redis_port, db=db)
+
     def get_latest(self, parse_type: Any) -> BaseModel:
         if not parse_type.__redis_db__:
             raise Exception("parse_type must have __redis_db__ attribute")

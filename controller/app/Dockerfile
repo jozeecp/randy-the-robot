@@ -6,4 +6,4 @@ COPY . .
 
 RUN pip install -r requirements.txt
 
-CMD ["guvicon", "app:app", "-b", "8000"]
+CMD ["uvicorn", "app:app", "--port", "8020", "--host", "0.0.0.0"]
