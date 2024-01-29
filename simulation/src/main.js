@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GUI } from 'dat.gui';
 import mqtt from 'mqtt';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { metersToUnits } from './libs/utils';
 
 // Scene setup
 var scene = new THREE.Scene();
@@ -62,7 +63,7 @@ var material_white = new THREE.MeshStandardMaterial({
 });
 
 // Robot arm construction
-var table = new THREE.Mesh(new THREE.BoxGeometry(5, 0.5, 12), material_white);
+var table = new THREE.Mesh(new THREE.BoxGeometry(metersToUnits(0.762), 0.5, metersToUnits(1.4986)), material_white);
 var base = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1, 1.4), material_blue);
 scene.add(table);
 table.add(base);
@@ -118,7 +119,7 @@ function createJointAndSegment(parent, previousSegmentLength, segmentLength, mat
 
 function createGripper(parent, previousSegmentLength, material) {
     // create two boxes
-    const y_offset = 0.625;
+    const y_offset = .750;
     var gripper = new THREE.Object3D();
     var gripper1 = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.25, 0.25), material);
     var gripper2 = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.25, 0.25), material);
@@ -220,12 +221,19 @@ client.on('message', function (topic, message) {
 });
 
 // Creating the robot arm
-var shoulder = createJointAndSegment(base, 0, 3, material_red);
-var elbow = createJointAndSegment(shoulder, 3, 1.5, material_blue);
-var wrist = createJointAndSegment(elbow, 1.5, 1, material_green);
-var wrist2 = createJointAndSegment(wrist, 1, 0.5, material_red);
-var wrist3 = createJointAndSegment(wrist2, 0.5, 0.5, material_blue);
-var hand = createGripper(wrist3, 0.5, material_green);
+var lengths_m = {
+    shoulder: 0.381,
+    elbow: 0.127,
+    wrist0: 0.127,
+    wrist1: 0.0254,
+    wrist2: 0.0635,
+}
+var shoulder = createJointAndSegment(base, 0, metersToUnits(lengths_m.shoulder), material_red);
+var elbow = createJointAndSegment(shoulder, metersToUnits(lengths_m.shoulder), metersToUnits(lengths_m.elbow), material_blue);
+var wrist = createJointAndSegment(elbow, metersToUnits(lengths_m.elbow), metersToUnits(lengths_m.wrist0), material_green);
+var wrist2 = createJointAndSegment(wrist, metersToUnits(lengths_m.wrist0), metersToUnits(lengths_m.wrist1), material_red);
+var wrist3 = createJointAndSegment(wrist2, metersToUnits(lengths_m.wrist1), metersToUnits(lengths_m.wrist2), material_blue);
+var hand = createGripper(wrist3, metersToUnits(lengths_m.wrist2), material_green);
 
 // Lighting
 var light1 = new THREE.DirectionalLight(colors.cyan, 1.0);
