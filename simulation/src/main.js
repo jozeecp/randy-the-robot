@@ -64,7 +64,7 @@ var material_white = new THREE.MeshStandardMaterial({
 
 // Robot arm construction
 var table = new THREE.Mesh(new THREE.BoxGeometry(metersToUnits(0.762), 0.5, metersToUnits(1.4986)), material_white);
-var base = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1, 1.4), material_blue);
+var base = new THREE.Mesh(new THREE.BoxGeometry(1.4, metersToUnits(0.1016), 1.4), material_blue);
 scene.add(table);
 table.add(base);
 base.position.y = table.geometry.parameters.height / 2 + base.geometry.parameters.height / 2;
@@ -223,14 +223,15 @@ client.on('message', function (topic, message) {
 // Creating the robot arm
 var lengths_m = {
     shoulder: 0.381,
-    elbow: 0.127,
-    wrist0: 0.127,
-    wrist1: 0.0254,
+    elbow: 0.254,
+    wrist0: 0.0,
+    wrist1: 0.0254, //0.0254 + 0.0635
     wrist2: 0.0635,
 }
+
 var shoulder = createJointAndSegment(base, 0, metersToUnits(lengths_m.shoulder), material_red);
-var elbow = createJointAndSegment(shoulder, metersToUnits(lengths_m.shoulder), metersToUnits(lengths_m.elbow), material_blue);
-var wrist = createJointAndSegment(elbow, metersToUnits(lengths_m.elbow), metersToUnits(lengths_m.wrist0), material_green);
+var elbow = createJointAndSegment(shoulder, metersToUnits(lengths_m.shoulder), metersToUnits(lengths_m.elbow), material_green);
+var wrist = createJointAndSegment(elbow, metersToUnits(lengths_m.elbow), metersToUnits(lengths_m.wrist0), material_blue);
 var wrist2 = createJointAndSegment(wrist, metersToUnits(lengths_m.wrist0), metersToUnits(lengths_m.wrist1), material_red);
 var wrist3 = createJointAndSegment(wrist2, metersToUnits(lengths_m.wrist1), metersToUnits(lengths_m.wrist2), material_blue);
 var hand = createGripper(wrist3, metersToUnits(lengths_m.wrist2), material_green);
@@ -325,7 +326,7 @@ var render = function () {
     shoulder.setRotationFromAxisAngle(zAxis, options.shoulder * Math.PI / 180);
     elbow.setRotationFromAxisAngle(zAxis, options.elbow * Math.PI / 180);
     wrist.setRotationFromAxisAngle(yAxis, options.wrist * Math.PI / 180);
-    wrist2.setRotationFromAxisAngle(zAxis, options.wrist2 * Math.PI / 180);
+    wrist2.setRotationFromAxisAngle(zAxis, -options.wrist2 * Math.PI / 180);
     wrist3.setRotationFromAxisAngle(yAxis, options.wrist3 * Math.PI / 180);
     updateGripper(hand, options.hand);
 

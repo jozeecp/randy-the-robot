@@ -20,7 +20,6 @@ class DBClient:
     def get_latest(self, parse_type: Any) -> BaseModel:
         if not parse_type.__redis_db__:
             raise Exception("parse_type must have __redis_db__ attribute")
-        db = parse_type.__redis_db__
         keys = self.get_keys(parse_type)
         logger.debug(f"keys: {keys}")
         if len(keys) == 0:

@@ -9,6 +9,7 @@ from typing import Any, Dict, AsyncGenerator, Callable, Set
 from models.mqtt import Msg
 
 logger = get_logger(__name__)
+logger.setLevel("INFO")
 
 
 class MQTTClient:
@@ -18,7 +19,7 @@ class MQTTClient:
 
     async def start(self, logger: logging.Logger = logger):
         logger.info("Starting MQTT client ...")
-        self.client = await self.build_client(log_level="DEBUG")
+        self.client = await self.build_client(log_level="INFO")
         logger.debug(f"Built client: {pf(self.client.__dict__)}")
         logger.info("Started MQTT client")
 

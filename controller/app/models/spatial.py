@@ -23,5 +23,6 @@ class NamedConfiguration(BaseModel):
     wrist1: float
     wrist2: float
 
+
 class LastConfiguration(NamedConfiguration):
     __redis_db__ = 1

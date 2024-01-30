@@ -1,3 +1,4 @@
+import asyncio
 import roboticstoolbox as rtb
 import spatialmath as sm
 import numpy as np
@@ -22,7 +23,7 @@ class RobotController:
         self.db_client = db_client
         self.robot = rtb.DHRobot(
             links=[
-                rtb.RevoluteDH(alpha=pi/2),  # base
+                rtb.RevoluteDH(alpha=pi/2, offset=pi),  # base
                 rtb.RevoluteDH(a=0.381, offset=pi/2),  # shoulder
                 rtb.RevoluteDH(alpha=pi/2, offset=pi/2),  # elbow
                 rtb.RevoluteDH(d=0.254, alpha=pi/2),  # wrist0
@@ -32,8 +33,31 @@ class RobotController:
             name="DUM-Arm",
             # gravity=[0, 0, -9.81],
             base=sm.SE3(0.0, 0.0, 0.1016),
-            # qr=[0, 0, 0, 0, 0, 0],
         )
+
+        logger.debug(f"robot: {self.robot}")
+        self.robot.qlim = [
+            [-pi/2, -pi, -pi, -pi, -pi, -pi],
+            [pi/2, pi, pi, pi, pi, pi],
+        ]
+        logger.debug(f"qlim:\n{self.robot.qlim}")
+
+    async def move_to_named_config(self, config: NamedConfiguration) -> Tuple[bool, str]:
+        last_configuration = await self.get_configuration()
+        q0 = await self.named_config_to_q(last_configuration)
+
+        qf = await self.named_config_to_q(config)
+        logger.debug(f"qf: {qf}")
+        await self.publish_configuration(config)
+
+        self.db_client.set(get_unix_ts(), LastConfiguration.model_validate(config.model_dump()))
+
+        return True, "OK"
+    
+    async def get_ee_pose(self) -> sm.SE3:
+        last_configuration = await self.get_configuration()
+        q0 = await self.named_config_to_q(last_configuration)
+        return self.robot.fkine(q0)
 
     async def move_to(self, pose: sm.SE3) -> Tuple[bool, str]:
         """
@@ -57,7 +81,8 @@ class RobotController:
         # get the final configuration via inverse kinematics
         logger.debug("Running IK ...")
         logger.debug(f"Target pose:\n{pf(pose.t)}\n{pf(pose.R)}")
-        qf = self.robot.ikine_LM(pose, q0=q0)
+        qr = [0.0, 0.0, pi/2, 0.0, pi/2, 0.0]
+        qf = self.robot.ikine_NR(pose, q0=qr)
         logger.debug(f"Final config: {qf.q}")
         if not qf.success:
             logger.error(f"IK failed: {qf.reason}")
@@ -78,6 +103,63 @@ class RobotController:
         logger.debug(f"Final configuration:\n{pf(config)}")
         await self.publish_configuration(config)
         logger.debug("Published final configuration")
+
+        # save the final configuration
+        self.db_client.set(get_unix_ts(), config)
+        logger.debug("Saved final configuration")
+
+        return True, "OK"
+
+    async def move_to_trajectory_single_target(self, pose: sm.SE3) -> Tuple[bool, str]:
+        """
+        Move the robot to the given pose.
+
+        Args:
+            pose(spatialmath.SE3): The pose to move to.
+
+        Returns:
+            True, "OK" if the move was successful.
+            False, <reason> if the move failed.
+        """
+
+        # get the current config
+        logger.debug("Getting current config ...")
+        current_config = await self.get_configuration()
+        logger.debug(f"Current config:\n{pf(current_config)}")
+        q0 = await self.named_config_to_q(current_config)
+        logger.debug(f"Current config: {q0}")
+
+        # get the final configuration via inverse kinematics
+        logger.debug("Running IK ...")
+        logger.debug(f"Target pose:\n{pf(pose.t)}\n{pf(pose.R)}")
+        qr = [0.0, 0.0, pi/2, 0.0, pi/2, 0.0]
+        # qf = self.robot.ikine_LM(pose, q0=qr)
+        qf = self.robot.ikine_LM(pose, q0=qr)
+        logger.debug(f"Final config: {qf.q}")
+        if not qf.success:
+            logger.error(f"IK failed: {qf.reason}")
+            return False, qf.reason
+
+        # validate the final configuration
+        forward_kin_pose = self.robot.fkine(qf.q)
+        logger.debug(f"Forward kinematics pose:\n{pf(forward_kin_pose.t)}\n{pf(forward_kin_pose.R)}")
+        if not self.validate_pose_close_enough(pose, forward_kin_pose):
+            logger.error(
+                f"FK failed: {forward_kin_pose.t} != {pose.t} or {forward_kin_pose.R} != {pose.R}"
+            )
+            return False, "FK failed"
+
+        # get qt - list of lists of joint angles
+        qt = rtb.jtraj(q0, qf.q, 50)
+
+        # publish the final configuration (this is what actually moves the robot)
+        for q in qt.q:
+            logger.debug("Publishing final configuration ...")
+            config = LastConfiguration.model_validate((await self.q_to_named_config(q)).model_dump())
+            logger.debug(f"Final configuration:\n{pf(config)}")
+            await self.publish_configuration(config)
+            logger.debug("Published final configuration")
+            asyncio.sleep(0.1)
 
         # save the final configuration
         self.db_client.set(get_unix_ts(), config)
