@@ -1,5 +1,10 @@
-from models.spatial import NamedConfiguration
 import math
+from typing import List
+
+from pydantic import BaseModel
+
+from models.spatial import NamedConfiguration, RigidBodyPose, TrajectoryOptions
+
 
 class MoveToNamedConfigRequest(NamedConfiguration):
     @property
@@ -12,3 +17,9 @@ class MoveToNamedConfigRequest(NamedConfiguration):
             wrist1=math.radians(self.wrist1),
             wrist2=math.radians(self.wrist2),
         )
+
+
+class MoveThroughPathRequest(BaseModel):
+    poses: List[RigidBodyPose]
+    trajectory: bool = False
+    trajectory_options: TrajectoryOptions = TrajectoryOptions()

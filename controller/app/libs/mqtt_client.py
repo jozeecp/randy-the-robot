@@ -1,11 +1,15 @@
 import asyncio
 import json
-from aiomqtt import Client, exceptions as error
-import ssl
 import logging
+import ssl
 from random import randint
-from libs.utils import get_logger, custom_pformat as pf
-from typing import Any, Dict, AsyncGenerator, Callable, Set
+from typing import Any, AsyncGenerator, Callable, Dict, Set
+
+from aiomqtt import Client
+from aiomqtt import exceptions as error
+
+from libs.utils import custom_pformat as pf
+from libs.utils import get_logger
 from models.mqtt import Msg
 
 logger = get_logger(__name__)
@@ -23,7 +27,7 @@ class MQTTClient:
         logger.debug(f"Built client: {pf(self.client.__dict__)}")
         logger.info("Started MQTT client")
 
-    async def build_client(self, log_level = "INFO") -> Client:
+    async def build_client(self, log_level="INFO") -> Client:
         logger = logging.getLogger(__name__)
         logger.setLevel(log_level)
         logger.info("Building MQTT client ...")
@@ -82,7 +86,10 @@ class MQTTClient:
                 async with client.messages(queue_maxsize=1000) as messages:
                     async for message in messages:
                         logger.debug(f"Received message: {pf(message)}")
-                        yield Msg(topic=message.topic.value, payload=json.loads(message.payload))
+                        yield Msg(
+                            topic=message.topic.value,
+                            payload=json.loads(message.payload),
+                        )
             except error.MqttError as e:
                 logger.error(f"Error receiving message: {e}")
                 raise e
@@ -116,7 +123,8 @@ class MQTTClient:
                     if not event:
                         raise Exception("Event is None")
                     handler_task = asyncio.create_task(
-                        async_handler(event), name=f"handler_task_{topic}_event_{event.topic}"
+                        async_handler(event),
+                        name=f"handler_task_{topic}_event_{event.topic}",
                     )
                     await handler_task.add_done_callback(
                         lambda t: logger.debug(f"Task done: {t}")

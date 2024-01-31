@@ -7,6 +7,7 @@ class RigidBodyPose(BaseModel):
 
     Note: roll, pitch, yaw are in degrees, not radians
     """
+
     x: float
     y: float
     z: float
@@ -26,3 +27,11 @@ class NamedConfiguration(BaseModel):
 
 class LastConfiguration(NamedConfiguration):
     __redis_db__ = 1
+
+
+class TrajectoryOptions(BaseModel):
+    """
+    All options should have default values
+    """
+
+    amount_of_steps: int = 50

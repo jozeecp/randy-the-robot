@@ -1,11 +1,14 @@
 import json
 import os
+from typing import Any
+
 import redis
 from pydantic import BaseModel
-from typing import Any
+
 from libs.utils import get_logger
 
 logger = get_logger(__name__)
+
 
 class DBClient:
     def __init__(self) -> None:
@@ -24,7 +27,9 @@ class DBClient:
         logger.debug(f"keys: {keys}")
         if len(keys) == 0:
             return None
-        sorted_keys = sorted(keys)  # since these are timestamps, the first one is the oldest
+        sorted_keys = sorted(
+            keys
+        )  # since these are timestamps, the first one is the oldest
         logger.debug(f"sorted_keys: {sorted_keys}")
         latest_key = sorted_keys[-1]
         logger.debug(f"latest_key: {latest_key}")
@@ -56,7 +61,7 @@ class DBClient:
         db = parse_type.__redis_db__
         return self.get_client(db).delete(key)
 
-    def get_keys(self, parse_type: Any, pattern = "*") -> list:
+    def get_keys(self, parse_type: Any, pattern="*") -> list:
         if not parse_type.__redis_db__:
             raise Exception("parse_type must have __redis_db__ attribute")
         db = parse_type.__redis_db__
