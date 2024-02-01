@@ -1,6 +1,7 @@
 import json
 import os
-from typing import Any
+from typing import Any, List
+from numpy import ndarray, array
 
 import redis
 from pydantic import BaseModel
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 from libs.utils import get_logger
 
 logger = get_logger(__name__)
-logger.setLevel("INFO")
+logger.setLevel("DEBUG")
 
 
 class DBClient:
@@ -25,15 +26,15 @@ class DBClient:
         if not parse_type.__redis_db__:
             raise Exception("parse_type must have __redis_db__ attribute")
         keys = self.get_keys(parse_type)
-        logger.debug(f"keys: {keys}")
+        # logger.debug(f"keys: {keys}")
         if len(keys) == 0:
             return None
         sorted_keys = sorted(
             keys
         )  # since these are timestamps, the first one is the oldest
-        logger.debug(f"sorted_keys: {sorted_keys}")
+        # logger.debug(f"sorted_keys: {sorted_keys}")
         latest_key = sorted_keys[-1]
-        logger.debug(f"latest_key: {latest_key}")
+        # logger.debug(f"latest_key: {latest_key}")
         return self.get(latest_key, parse_type)
 
     def get(self, key: str, parse_type: BaseModel) -> BaseModel:
@@ -67,3 +68,21 @@ class DBClient:
             raise Exception("parse_type must have __redis_db__ attribute")
         db = parse_type.__redis_db__
         return self.get_client(db).keys(pattern=pattern)
+
+    def save_inv_kin_cache(self, hash: str, data: List[ndarray]):
+        data_str = json.dumps([d.tolist() for d in data])
+        self.get_client(2).set(hash, data_str)
+
+    def get_inv_kin_cache(self, hash: str) -> List[ndarray]:
+        data_str = self.get_client(2).get(hash)
+        if data_str is None:
+            logger.info(f"inv_kin_cache not found: {hash}")
+            return None
+        logger.debug(f"inv_kin_cache found: {hash}")
+        logger.debug(f"data_str: ...{data_str[-100:]}")
+        result = json.loads(data_str)
+        logger.debug(f"length of result: [ {len(result)} ]")
+        logger.debug(f"result[0]: {result[0]}")
+        result = [array(d) for d in result]
+        logger.debug(f"result: {result}")
+        return result

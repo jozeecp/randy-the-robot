@@ -223,9 +223,11 @@ class RobotController:
         self, path: List[sm.SE3], q0: np.ndarray
     ) -> List[np.ndarray]:
         hashed_path = self.path_to_hash(path)
-        if hashed_path in self.inverse_kinematics_cache:
-            logger.debug("Inverse kinematics cache hit")
-            return self.inverse_kinematics_cache[hashed_path]
+        cached_qt = self.db_client.get_inv_kin_cache(hashed_path)
+        if cached_qt is not None:
+            logger.info(f"Using cached inverse kinematics for path: {hashed_path}")
+            return cached_qt
+        logger.info(f"Calculating inverse kinematics for path: {hashed_path}")
 
         async def async_pose_generator():
             for pose in path:
@@ -255,7 +257,7 @@ class RobotController:
         logger.debug("All IK tasks finished")
 
         # save to cache
-        self.inverse_kinematics_cache[hashed_path] = qfs
+        self.db_client.save_inv_kin_cache(hashed_path, qfs)
 
         return qfs
 
@@ -459,7 +461,7 @@ class RobotController:
             target_pose.R, current_pose.R, atol=0.01
         )
 
-    def path_to_hash(self, path: sm.SE3) -> str:
+    def path_to_hash(self, path: List[sm.SE3]) -> str:
         hasher = hashlib.sha256()
         for se3 in path:
             # Serialize the SE3 object to a byte stream
