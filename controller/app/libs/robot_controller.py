@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import pickle
 import time
 from math import degrees, pi
 from typing import List, Set, Tuple
@@ -14,6 +16,7 @@ from libs.utils import get_logger, get_unix_ts
 from models.spatial import LastConfiguration, NamedConfiguration, TrajectoryOptions
 
 logger = get_logger(__name__)
+logger.setLevel("INFO")
 
 
 class RobotController:
@@ -26,6 +29,7 @@ class RobotController:
         self.db_client = db_client
 
         self.tasks: Set[asyncio.Task] = set()
+        self.inverse_kinematics_cache = {}
         self.robot = rtb.DHRobot(
             links=[
                 rtb.RevoluteDH(alpha=pi / 2, offset=pi),  # base
@@ -144,7 +148,10 @@ class RobotController:
 
         # get the current config
         logger.debug("Getting current config ...")
+        time_a = time.time()
         current_config = await self.get_configuration()
+        time_b = time.time()
+        logger.info(f"get_configuration took {time_b - time_a} seconds")
         logger.debug(f"Current config:\n{pf(current_config)}")
         q0 = await self.named_config_to_q(current_config)
         logger.debug(f"Current config: {q0}")
@@ -154,24 +161,26 @@ class RobotController:
 
         # if not trajectory, just publish the final configurations
         if not trajectory:
-            qfs = []
-            for count, pose in enumerate(path):
-                logger.debug("Running IK ...")
-                logger.debug(f"Target pose:\n{pf(pose.t)}\n{pf(pose.R)}")
-                qf = self.robot.ikine_LM(pose, q0=(qr if count == 0 else q0))
-                logger.debug(f"Final config: {qf.q}")
-                qfs.append(qf.q)
-                q0 = qf.q
-                if not qf.success:
-                    logger.error(f"IK failed: {qf.reason}")
-                    return False, qf.reason
-            logger.debug(f"qfs: {qfs}")
+            time_a = time.time()
+            qfs = await self.async_inverse_kinematics(path, q0)
+            time_b = time.time()
+            logger.info(
+                f"Inverse kinematics took {time_b - time_a} seconds to compute."
+            )
 
+            time_a = time.time()
             await self.move_to_q0(qfs[0])
+            time_b = time.time()
+            logger.info(f"move_to_q0 took {time_b - time_a} seconds to compute.")
 
             logger.debug("Trajectory is False, publishing final configurations ...")
+            time_a = time.time()
             async_task = asyncio.create_task(self.move_through_q_path(qfs))
             self.tasks.add(async_task)
+            time_b = time.time()
+            logger.info(
+                f"move_through_q_path took {time_b - time_a} seconds to compute."
+            )
 
             return True, "OK"
 
@@ -210,6 +219,46 @@ class RobotController:
 
         return True, "OK"
 
+    async def async_inverse_kinematics(
+        self, path: List[sm.SE3], q0: np.ndarray
+    ) -> List[np.ndarray]:
+        hashed_path = self.path_to_hash(path)
+        if hashed_path in self.inverse_kinematics_cache:
+            logger.debug("Inverse kinematics cache hit")
+            return self.inverse_kinematics_cache[hashed_path]
+
+        async def async_pose_generator():
+            for pose in path:
+                yield pose
+
+        async def background_process(pose: sm.SE3, q0: np.ndarray = q0):
+            logger.debug("Running IK ...")
+            logger.debug(f"Target pose:\n{pf(pose.t)}\n{pf(pose.R)}")
+            qf = self.robot.ikine_GN(pose, q0=q0)
+            logger.debug(f"Final config: {qf.q}")
+            qfs.append(qf.q)
+            q0 = qf.q
+            if not qf.success:
+                logger.error(f"IK failed: {qf.reason}")
+                return []
+
+        _tasks: Set[asyncio.Task] = set()
+        qfs = []
+        logger.debug("Running async inverse kinematics ...")
+        async for pose in async_pose_generator():
+            async_task = asyncio.create_task(background_process(pose=pose))
+            _tasks.add(async_task)
+        logger.debug("Waiting for all IK tasks to finish ...")
+        while len(qfs) < len(path):
+            logger.debug(f"inv kin count: [ {len(qfs)} ]")
+            await asyncio.sleep(0.1)
+        logger.debug("All IK tasks finished")
+
+        # save to cache
+        self.inverse_kinematics_cache[hashed_path] = qfs
+
+        return qfs
+
     async def move_to_q0(self, q0: np.ndarray) -> Tuple[bool, str]:
         """
         Move the robot to the given configuration.
@@ -242,7 +291,8 @@ class RobotController:
         # generate trajectory
         logger.debug("Generating trajectory ...")
         path = rtb.ctraj(t0, t1, number_of_steps)
-        logger.debug(f"path: {path}")
+        # logger.debug(f"path: {path}")
+        logger.debug("trajectory generated")
 
         # move through trajectory
         logger.debug("Moving through trajectory ...")
@@ -312,10 +362,6 @@ class RobotController:
         # publish the final configuration (this is what actually moves the robot)
         async_task = asyncio.create_task(self.move_through_q_path(qt.q))
         self.tasks.add(async_task)
-
-        # save the final configuration
-        self.db_client.set(get_unix_ts(), self.q_to_named_config(qf.q))
-        logger.debug("Saved final configuration")
 
         return True, "OK"
 
@@ -412,3 +458,13 @@ class RobotController:
         return np.allclose(target_pose.t, current_pose.t, atol=0.01) and np.allclose(
             target_pose.R, current_pose.R, atol=0.01
         )
+
+    def path_to_hash(self, path: sm.SE3) -> str:
+        hasher = hashlib.sha256()
+        for se3 in path:
+            # Serialize the SE3 object to a byte stream
+            serialized_se3 = pickle.dumps(se3)
+            # Update the hasher with the serialized SE3 object
+            hasher.update(serialized_se3)
+        # Return the hexadecimal representation of the hash
+        return hasher.hexdigest()

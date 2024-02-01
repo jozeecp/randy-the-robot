@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from libs.utils import get_logger
 
 logger = get_logger(__name__)
+logger.setLevel("INFO")
 
 
 class DBClient:
