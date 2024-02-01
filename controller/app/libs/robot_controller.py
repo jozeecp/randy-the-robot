@@ -44,7 +44,8 @@ class RobotController:
             base=sm.SE3(0.0, 0.0, 0.1016),
         )
 
-        logger.debug(f"robot: {self.robot}")
+        logger.info(f"robot: {self.robot}")
+        logger.info(f"maximum reach: {self.robot.reach}")
         self.robot.qlim = [
             [-pi / 2, -pi, -pi, -pi, -pi, -pi],
             [pi / 2, pi, pi, pi, pi, pi],
@@ -214,41 +215,72 @@ class RobotController:
         self, path: List[sm.SE3], q0: np.ndarray
     ) -> List[np.ndarray]:
         hashed_path = self.path_to_hash(path)
-        cached_qt = self.db_client.get_inv_kin_cache(hashed_path)
+        cached_qt = self.db_client.get_inv_kin_path_cache(hashed_path)
         if cached_qt is not None:
             logger.info(f"Using cached inverse kinematics for path: {hashed_path}")
             return cached_qt
         logger.info(f"Calculating inverse kinematics for path: {hashed_path}")
 
+        class Counter:
+            def __init__(self):
+                self.count = 0
+
+            def increment(self):
+                self.count += 1
+
+            def get(self):
+                return self.count
+
         async def async_pose_generator():
             for pose in path:
                 yield pose
 
-        async def background_process(pose: sm.SE3, q0: np.ndarray = q0):
+        async def background_process(
+            pose: sm.SE3, counter: Counter, q0: np.ndarray = q0
+        ):
             logger.debug("Running IK ...")
             logger.debug(f"Target pose:\n{pf(pose.t)}\n{pf(pose.R)}")
+            hashed_pose = self.pose_to_hash(pose)
+            cached_qf = self.db_client.get_inv_kin_single_point_cache(hashed_pose)
+            if cached_qf is not None:
+                # logger.info(f"Using cached inverse kinematics for pose: {hashed_pose}")
+                qfs.append(cached_qf)
+                q0 = cached_qf
+                counter.increment()
+                return cached_qf
             qf = self.robot.ikine_LM(pose, q0=q0)
-            logger.debug(f"Final config: {qf.q}")
+            # logger.debug(f"Final config: {qf.q}")
             qfs.append(qf.q)
             q0 = qf.q
             if not qf.success:
                 logger.error(f"IK failed: {qf.reason}")
                 return []
+            self.db_client.save_inv_kin_single_point_cache(hashed_pose, qf.q)
 
         _tasks: Set[asyncio.Task] = set()
         qfs = []
         logger.debug("Running async inverse kinematics ...")
+        cache_counter = Counter()
         async for pose in async_pose_generator():
-            async_task = asyncio.create_task(background_process(pose=pose))
+            async_task = asyncio.create_task(
+                background_process(pose=pose, counter=cache_counter)
+            )
             _tasks.add(async_task)
         logger.debug("Waiting for all IK tasks to finish ...")
+        # counter = 0
         while len(qfs) < len(path):
+            # if counter % 100 == 0:
+            #     return []
             logger.debug(f"inv kin count: [ {len(qfs)} ]")
+            # counter += 1
             await asyncio.sleep(0.1)
-        logger.debug("All IK tasks finished")
+        logger.info("All IK tasks finished")
+        logger.info(
+            f"[ {cache_counter.get()} ] cached inverse kinematics out of [ {len(path)} ] poses"
+        )
 
         # save to cache
-        self.db_client.save_inv_kin_cache(hashed_path, qfs)
+        self.db_client.save_inv_kin_path_cache(hashed_path, qfs)
 
         return qfs
 
@@ -459,3 +491,29 @@ class RobotController:
             hasher.update(serialized_se3)
         # Return the hexadecimal representation of the hash
         return hasher.hexdigest()
+
+    def pose_to_hash(self, pose: sm.SE3) -> str:
+        hasher = hashlib.sha256()
+
+        logger.debug(f"pose: {pose}")
+
+        # round the pose to 2 decimal places
+        logger.debug("about to round pose")
+        t_rounded = np.round(pose.t, 2)
+        logger.debug(f"finished rounding t: {pose}")
+        logger.debug(f"pose.R before rounding: {pose.R}")
+        R_rounded = pose.R
+        for cell in R_rounded:
+            R_rounded = np.round(cell, 2)
+            logger.debug(f"cell: {cell}")
+        logger.debug(f"finished rounding R: {R_rounded}")
+        pose_list = np.concatenate((t_rounded, R_rounded.flatten())).tolist()
+
+        logger.debug(f"rounded pose: {pose}")
+
+        pickled_pose = pickle.dumps(pose_list)
+
+        hasher.update(pickled_pose)
+        hashed_pose = hasher.hexdigest()
+        logger.debug(f"hashed pose: {hashed_pose}")
+        return hashed_pose
