@@ -200,16 +200,7 @@ class RobotController:
 
         # calculate qt by running inverse kinematics on the padded path
         logger.debug("Calculating qt ...")
-        qt = []
-        for t in padded_path:
-            logger.debug(f"Running IK for target pose:\n{pf(t.t)}\n{pf(t.R)}")
-            q = self.robot.ikine_LM(t, q0=qr)
-            logger.debug(f"Final config: {q.q}")
-            if not q.success:
-                logger.error(f"IK failed: {q.reason}")
-                return False, q.reason
-            qt.append(q.q)
-            q0 = q.q
+        qt = await self.async_inverse_kinematics(padded_path, q0)
 
         async_task = asyncio.create_task(self.move_through_q_path(qt))
         async_task.add_done_callback(
@@ -236,7 +227,7 @@ class RobotController:
         async def background_process(pose: sm.SE3, q0: np.ndarray = q0):
             logger.debug("Running IK ...")
             logger.debug(f"Target pose:\n{pf(pose.t)}\n{pf(pose.R)}")
-            qf = self.robot.ikine_GN(pose, q0=q0)
+            qf = self.robot.ikine_LM(pose, q0=q0)
             logger.debug(f"Final config: {qf.q}")
             qfs.append(qf.q)
             q0 = qf.q
@@ -337,38 +328,35 @@ class RobotController:
         q0 = await self.named_config_to_q(current_config)
         logger.debug(f"Current config: {q0}")
 
-        # get the final configuration via inverse kinematics
-        logger.debug("Running IK ...")
-        logger.debug(f"Target pose:\n{pf(pose.t)}\n{pf(pose.R)}")
-        qr = [0.0, 0.0, pi / 2, 0.0, pi / 2, 0.0]
-        qf = self.robot.ikine_LM(pose, q0=qr)
-        logger.debug(f"Final config: {qf.q}")
-        if not qf.success:
-            logger.error(f"IK failed: {qf.reason}")
-            return False, qf.reason
+        # create a pose trajectory
+        logger.debug("Creating pose trajectory ...")
+        t0 = self.robot.fkine(q0)
+        distance = np.linalg.norm(pose.t - t0.t)
+        logger.debug(f"distance: {distance}")
+        rotation_distance = np.linalg.norm(pose.R - t0.R)
+        logger.debug(f"rotation_distance: {rotation_distance}")
+        if distance < 0.01 and rotation_distance < 0.01:
+            logger.debug(f"distance: {distance}")
+            return True, "OK"
+        logger.debug(f"distance: {distance}")
+        number_of_steps = int(distance * 100) + 5
+        path = rtb.ctraj(t0, pose, number_of_steps)
+        logger.debug("trajectory created")
 
-        # validate the final configuration
-        forward_kin_pose = self.robot.fkine(qf.q)
-        logger.debug(
-            f"Forward kinematics pose:\n{pf(forward_kin_pose.t)}\n{pf(forward_kin_pose.R)}"
-        )
-        if not self.validate_pose_close_enough(pose, forward_kin_pose):
-            logger.error(
-                f"FK failed: {forward_kin_pose.t} != {pose.t} or {forward_kin_pose.R} != {pose.R}"
-            )
-            return False, "FK failed"
-
-        # get qt - list of lists of joint angles
-        qt = rtb.jtraj(q0, qf.q, 50)
+        # create inverse kinematics trajectory
+        logger.debug("Creating inverse kinematics trajectory ...")
+        qt = await self.async_inverse_kinematics(path, q0)
+        logger.debug("inverse kinematics trajectory created")
 
         # publish the final configuration (this is what actually moves the robot)
-        async_task = asyncio.create_task(self.move_through_q_path(qt.q))
+        async_task = asyncio.create_task(self.move_through_q_path(qt))
         self.tasks.add(async_task)
 
         return True, "OK"
 
     async def move_through_q_path(self, qt: List[List[np.ndarray]]) -> None:
         # publish the final configuration (this is what actually moves the robot)
+        logger.info("Moving through q path ...")
         for q in qt:
             logger.debug("Publishing configuration ...")
             logger.debug(f"q: {q}")
@@ -385,6 +373,7 @@ class RobotController:
         last_configuration = LastConfiguration.model_validate(named_config.model_dump())
         self.db_client.set(get_unix_ts(), last_configuration)
         logger.debug("Saved final configuration")
+        logger.info("Moved through q path")
 
     async def get_pose(self) -> sm.SE3:
         last_configuration = await self.get_configuration()

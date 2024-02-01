@@ -1,5 +1,5 @@
 import asyncio
-from typing import Set, Tuple
+from typing import Dict, Set, Tuple
 
 import spatialmath as sm
 
@@ -26,21 +26,34 @@ class Engine:
         logger.info("Starting engine ...")
         logger.info("Engine started")
 
+    async def patch_ee_pose(self, data: Dict[str, float]) -> Tuple[bool, str]:
+        logger.debug(f"data: {data}")
+        current_pose = await self.get_ee_pose()
+        new_pose = current_pose
+        logger.debug(f"current_pose: {current_pose}")
+        for key, value in data.items():
+            setattr(new_pose, key, value)
+        logger.debug(f"new_pose: {new_pose}")
+
+        logger.debug("Moving to new pose ...")
+        return await self.move_to(new_pose, trajectory=True)
+
     async def get_ee_pose(self) -> RigidBodyPose:
         ee_pose = await self.robot_controller.get_ee_pose()
         rb_pose = RigidBodyPose(
             x=round(ee_pose.t[0], 2),
             y=round(ee_pose.t[1], 2),
             z=round(ee_pose.t[2], 2),
-            roll=round(sm.SE3.eul(ee_pose, unit="deg")[0], 2),
-            pitch=round(sm.SE3.eul(ee_pose, unit="deg")[1], 2),
-            yaw=round(sm.SE3.eul(ee_pose, unit="deg")[2], 2),
+            roll=round(sm.SE3.rpy(ee_pose, unit="deg")[0], 2),
+            pitch=round(sm.SE3.rpy(ee_pose, unit="deg")[1], 2),
+            yaw=round(sm.SE3.rpy(ee_pose, unit="deg")[2], 2),
         )
         return rb_pose
 
     async def move_to(
         self, pose: RigidBodyPose, trajectory: bool = False
     ) -> Tuple[bool, str]:
+        logger.info(f"Moving to pose: {pose}")
         target_pose = (
             sm.SE3.Tx(pose.x)
             * sm.SE3.Ty(pose.y)
@@ -48,8 +61,10 @@ class Engine:
             * sm.SE3.RPY(pose.roll, pose.pitch, pose.yaw, unit="deg")
         )
         if not trajectory:
+            logger.debug("Moving to target pose without trajectory")
             return await self.robot_controller.move_to(target_pose)
         else:
+            logger.debug("Moving to target pose with trajectory")
             return await self.robot_controller.move_to_trajectory_single_target(
                 target_pose
             )

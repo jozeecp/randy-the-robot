@@ -62,6 +62,13 @@ async def run_example(
     return RequestResponse(success=success, message=reason)
 
 
+@app.patch(path="/ee_pose", response_model=RequestResponse)
+async def patch_ee_pose(data: dict[str, float]):
+    logger.info(f"patch data: {data}")
+    success, reason = await engine.patch_ee_pose(data)
+    return RequestResponse(success=success, message=reason)
+
+
 @app.get(path="/ee_pose", response_model=RigidBodyPose)
 async def ee_pose():
     return await engine.get_ee_pose()

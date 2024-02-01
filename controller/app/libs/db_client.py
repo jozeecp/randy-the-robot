@@ -1,15 +1,15 @@
 import json
 import os
 from typing import Any, List
-from numpy import ndarray, array
 
 import redis
+from numpy import array, ndarray
 from pydantic import BaseModel
 
 from libs.utils import get_logger
 
 logger = get_logger(__name__)
-logger.setLevel("DEBUG")
+logger.setLevel("INFO")
 
 
 class DBClient:
